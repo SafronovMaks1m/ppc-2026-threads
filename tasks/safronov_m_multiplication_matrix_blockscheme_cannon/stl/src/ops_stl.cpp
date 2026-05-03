@@ -3,6 +3,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <functional>
 
 #include "safronov_m_multiplication_matrix_blockscheme_cannon/common/include/common.hpp"
 
