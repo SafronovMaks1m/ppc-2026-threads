@@ -109,7 +109,6 @@ void SafronovMMultiplicationMatrixBlockSchemeCannonSTL::AlgorithmCannon(
     std::vector<std::vector<std::vector<std::vector<double>>>> &matrix_blocks_a,
     std::vector<std::vector<std::vector<std::vector<double>>>> &matrix_blocks_b,
     std::vector<std::vector<std::vector<std::vector<double>>>> &matrix_blocks_c, int size_block, int columns_blocks) {
-  
   int num_threads = std::thread::hardware_concurrency();
   if (num_threads == 0) {
     num_threads = 1;
@@ -149,7 +148,6 @@ void SafronovMMultiplicationMatrixBlockSchemeCannonSTL::AlgorithmCannon(
 void SafronovMMultiplicationMatrixBlockSchemeCannonSTL::FillingResultingMatrix(
     std::vector<std::vector<std::vector<std::vector<double>>>> &matrix_blocks_c,
     std::vector<std::vector<double>> &matrix_c, int size_block, int columns_blocks) {
-  
   int num_threads = std::thread::hardware_concurrency();
   if (num_threads == 0) {
     num_threads = 1;
@@ -189,7 +187,7 @@ bool SafronovMMultiplicationMatrixBlockSchemeCannonSTL::RunImpl() {
   const auto &matrix_b = std::get<2>(in);
   int n = static_cast<int>(matrix_a.size());
   int columns_blocks = n / size_block;
-  
+
   std::vector<std::vector<std::vector<std::vector<double>>>> matrix_blocks_a(
       columns_blocks,
       std::vector<std::vector<std::vector<double>>>(
