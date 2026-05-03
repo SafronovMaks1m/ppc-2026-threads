@@ -177,7 +177,7 @@ void SafronovMMultiplicationMatrixBlockSchemeCannonSTL::FillingResultingMatrix(
   }
   for (auto &th : threads) {
     th.join();
-  }
+  } //
 }
 
 bool SafronovMMultiplicationMatrixBlockSchemeCannonSTL::RunImpl() {
