@@ -17,12 +17,12 @@ SafronovMMultiplicationMatrixBlockSchemeCannonALL::SafronovMMultiplicationMatrix
 
 bool SafronovMMultiplicationMatrixBlockSchemeCannonALL::ValidationImpl() {
   const auto &in = GetInput();
-  int size_block = std::get<0>(in);
-  const auto &matrix_a = std::get<1>(in);
-  const auto &matrix_b = std::get<2>(in);
+  int n = std::get<0>(in);
+  const auto &a = std::get<1>(in);
+  const auto &b = std::get<2>(in);
 
-  return (size_block > 0) && (!matrix_a.empty() && !matrix_b.empty()) && (matrix_a.size() == matrix_a[0].size()) &&
-         (matrix_b.size() == matrix_b[0].size()) && (matrix_a.size() == matrix_b.size());
+  return (n > 0) && (!a.empty() && !b.empty()) && (a.size() == a[0].size()) && (b.size() == b[0].size()) &&
+         (a.size() == b.size());
 }
 
 bool SafronovMMultiplicationMatrixBlockSchemeCannonALL::PreProcessingImpl() {
@@ -38,23 +38,23 @@ void SafronovMMultiplicationMatrixBlockSchemeCannonALL::PadMatrix(const std::vec
                                                                   std::vector<std::vector<double>> &dst, int padded_n) {
   dst.assign(static_cast<size_t>(padded_n), std::vector<double>(static_cast<size_t>(padded_n), 0.0));
 
-  int n = static_cast<int>(src.size());
+  const int n = static_cast<int>(src.size());
+
   for (int i = 0; i < n; ++i) {
-    for (int j = 0; j < n; ++j) {
-      dst[i][j] = src[i][j];
-    }
+    std::copy(src[i].begin(), src[i].end(), dst[i].begin());
   }
 }
 
-void SafronovMMultiplicationMatrixBlockSchemeCannonALL::ParallelMultiplyBlocks(const std::vector<double> &A,
-                                                                               const std::vector<double> &B,
-                                                                               std::vector<double> &C, int block_size) {
+void SafronovMMultiplicationMatrixBlockSchemeCannonALL::ParallelMultiplyBlocks(const std::vector<double> &a,
+                                                                               const std::vector<double> &b,
+                                                                               std::vector<double> &c, int block_size) {
   tbb::parallel_for(tbb::blocked_range2d<int>(0, block_size, 0, block_size), [&](const tbb::blocked_range2d<int> &r) {
     for (int i = r.rows().begin(); i < r.rows().end(); ++i) {
       for (int k = 0; k < block_size; ++k) {
-        double temp = A[i * block_size + k];
+        double temp = a[(i * block_size) + k];
+
         for (int j = r.cols().begin(); j < r.cols().end(); ++j) {
-          C[i * block_size + j] += temp * B[k * block_size + j];
+          c[(i * block_size) + j] += temp * b[(k * block_size) + j];
         }
       }
     }
@@ -64,68 +64,69 @@ void SafronovMMultiplicationMatrixBlockSchemeCannonALL::ParallelMultiplyBlocks(c
 void SafronovMMultiplicationMatrixBlockSchemeCannonALL::DistributeData(
     MPI_Comm comm, int worker_rank, int worker_size, int q, int block_size,
     const std::vector<std::vector<double>> &matrix_a_full, const std::vector<std::vector<double>> &matrix_b_full,
-    std::vector<double> &local_A, std::vector<double> &local_B) {
+    std::vector<double> &local_a, std::vector<double> &local_b) {
   if (worker_rank == 0) {
-    for (int p = 0; p < worker_size; ++p) {
-      int p_row = p / q;
-      int p_col = p % q;
+    for (int proc = 0; proc < worker_size; ++proc) {
+      int row = proc / q;
+      int col = proc % q;
 
-      std::vector<double> send_A(static_cast<size_t>(block_size) * block_size);
-      std::vector<double> send_B(static_cast<size_t>(block_size) * block_size);
+      std::vector<double> send_a(static_cast<size_t>(block_size) * block_size);
+      std::vector<double> send_b(static_cast<size_t>(block_size) * block_size);
 
       for (int i = 0; i < block_size; ++i) {
         for (int j = 0; j < block_size; ++j) {
-          int a_row = p_row * block_size + i;
-          int a_col = ((p_col + p_row) % q) * block_size + j;
-          int b_row = ((p_row + p_col) % q) * block_size + i;
-          int b_col = p_col * block_size + j;
+          int a_row = row * block_size + i;
+          int a_col = ((col + row) % q) * block_size + j;
 
-          send_A[i * block_size + j] = matrix_a_full[a_row][a_col];
-          send_B[i * block_size + j] = matrix_b_full[b_row][b_col];
+          int b_row = ((row + col) % q) * block_size + i;
+          int b_col = col * block_size + j;
+
+          send_a[(i * block_size) + j] = matrix_a_full[a_row][a_col];
+          send_b[(i * block_size) + j] = matrix_b_full[b_row][b_col];
         }
       }
 
-      if (p == 0) {
-        local_A = std::move(send_A);
-        local_B = std::move(send_B);
+      if (proc == 0) {
+        local_a = std::move(send_a);
+        local_b = std::move(send_b);
       } else {
-        MPI_Send(send_A.data(), block_size * block_size, MPI_DOUBLE, p, 0, comm);
-        MPI_Send(send_B.data(), block_size * block_size, MPI_DOUBLE, p, 1, comm);
+        MPI_Send(send_a.data(), block_size * block_size, MPI_DOUBLE, proc, 0, comm);
+        MPI_Send(send_b.data(), block_size * block_size, MPI_DOUBLE, proc, 1, comm);
       }
     }
   } else {
-    MPI_Recv(local_A.data(), block_size * block_size, MPI_DOUBLE, 0, 0, comm, MPI_STATUS_IGNORE);
-    MPI_Recv(local_B.data(), block_size * block_size, MPI_DOUBLE, 0, 1, comm, MPI_STATUS_IGNORE);
+    MPI_Recv(local_a.data(), block_size * block_size, MPI_DOUBLE, 0, 0, comm, MPI_STATUS_IGNORE);
+    MPI_Recv(local_b.data(), block_size * block_size, MPI_DOUBLE, 0, 1, comm, MPI_STATUS_IGNORE);
   }
 }
 
 void SafronovMMultiplicationMatrixBlockSchemeCannonALL::CannonAlgorithm(MPI_Comm comm, int worker_rank, int q,
-                                                                        int block_size, std::vector<double> &local_A,
-                                                                        std::vector<double> &local_B,
-                                                                        std::vector<double> &local_C) {
+                                                                        int block_size, std::vector<double> &local_a,
+                                                                        std::vector<double> &local_b,
+                                                                        std::vector<double> &local_c) {
   int row = worker_rank / q;
   int col = worker_rank % q;
 
-  int left = row * q + (col - 1 + q) % q;
-  int right = row * q + (col + 1) % q;
+  int left = row * q + ((col + 1) % q);
+  int right = row * q + ((col - 1 + q) % q);
   int up = ((row - 1 + q) % q) * q + col;
   int down = ((row + 1) % q) * q + col;
 
   for (int step = 0; step < q; ++step) {
-    ParallelMultiplyBlocks(local_A, local_B, local_C, block_size);
+    ParallelMultiplyBlocks(local_a, local_b, local_c, block_size);
 
     if (step < q - 1) {
-      std::vector<double> next_A(static_cast<size_t>(block_size) * block_size);
-      std::vector<double> next_B(static_cast<size_t>(block_size) * block_size);
+      std::vector<double> next_a(static_cast<size_t>(block_size) * block_size);
+      std::vector<double> next_b(static_cast<size_t>(block_size) * block_size);
 
-      MPI_Sendrecv(local_A.data(), block_size * block_size, MPI_DOUBLE, left, 10, next_A.data(),
+      MPI_Sendrecv(local_a.data(), block_size * block_size, MPI_DOUBLE, left, 10, next_a.data(),
                    block_size * block_size, MPI_DOUBLE, right, 10, comm, MPI_STATUS_IGNORE);
 
-      MPI_Sendrecv(local_B.data(), block_size * block_size, MPI_DOUBLE, up, 11, next_B.data(), block_size * block_size,
+      MPI_Sendrecv(local_b.data(), block_size * block_size, MPI_DOUBLE, up, 11, next_b.data(), block_size * block_size,
                    MPI_DOUBLE, down, 11, comm, MPI_STATUS_IGNORE);
 
-      local_A = std::move(next_A);
-      local_B = std::move(next_B);
+      local_a = std::move(next_a);
+      local_b = std::move(next_b);
     }
   }
 }
@@ -133,52 +134,57 @@ void SafronovMMultiplicationMatrixBlockSchemeCannonALL::CannonAlgorithm(MPI_Comm
 void SafronovMMultiplicationMatrixBlockSchemeCannonALL::CollectResult(MPI_Comm comm, int worker_rank, int worker_size,
                                                                       int q, int block_size,
                                                                       std::vector<double> &flat_result,
-                                                                      const std::vector<double> &local_C) {
-  const int padded_n = q * block_size;
+                                                                      const std::vector<double> &local_c) {
+  int padded_n = q * block_size;
 
   if (worker_rank == 0) {
     for (int i = 0; i < block_size; ++i) {
       for (int j = 0; j < block_size; ++j) {
-        flat_result[i * padded_n + j] = local_C[i * block_size + j];
+        flat_result[(i * padded_n) + j] = local_c[(i * block_size) + j];
       }
     }
 
     std::vector<double> recv_buf(static_cast<size_t>(block_size) * block_size);
-    for (int p = 1; p < worker_size; ++p) {
-      MPI_Recv(recv_buf.data(), block_size * block_size, MPI_DOUBLE, p, 20, comm, MPI_STATUS_IGNORE);
 
-      int p_row = p / q;
-      int p_col = p % q;
+    for (int proc = 1; proc < worker_size; ++proc) {
+      MPI_Recv(recv_buf.data(), block_size * block_size, MPI_DOUBLE, proc, 20, comm, MPI_STATUS_IGNORE);
+
+      int row = proc / q;
+      int col = proc % q;
 
       for (int i = 0; i < block_size; ++i) {
         for (int j = 0; j < block_size; ++j) {
-          int row = p_row * block_size + i;
-          int col = p_col * block_size + j;
-          flat_result[row * padded_n + col] = recv_buf[i * block_size + j];
+          int global_row = row * block_size + i;
+          int global_col = col * block_size + j;
+
+          flat_result[(global_row * padded_n) + global_col] = recv_buf[(i * block_size) + j];
         }
       }
     }
+
   } else {
-    MPI_Send(local_C.data(), block_size * block_size, MPI_DOUBLE, 0, 20, comm);
+    MPI_Send(local_c.data(), block_size * block_size, MPI_DOUBLE, 0, 20, comm);
   }
 }
 
 bool SafronovMMultiplicationMatrixBlockSchemeCannonALL::RunImpl() {
   int rank = 0;
   int size = 1;
+
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-  int q = static_cast<int>(std::floor(std::sqrt(size)));
-  int working_proc_count = q * q;
+  int q = static_cast<int>(std::sqrt(size));
+  int active = q * q;
 
-  int original_n = 0;
+  int n = 0;
   if (rank == 0) {
-    original_n = static_cast<int>(std::get<1>(GetInput()).size());
+    n = static_cast<int>(std::get<1>(GetInput()).size());
   }
-  MPI_Bcast(&original_n, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-  int padded_n = CalcPaddedSize(original_n, std::max(1, q));
+  MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  int padded_n = CalcPaddedSize(n, std::max(1, q));
   int block_size = padded_n / std::max(1, q);
 
   std::vector<std::vector<double>> padded_a;
@@ -191,42 +197,42 @@ bool SafronovMMultiplicationMatrixBlockSchemeCannonALL::RunImpl() {
 
   std::vector<double> flat_result(static_cast<size_t>(padded_n) * padded_n, 0.0);
 
-  MPI_Comm cannon_comm = MPI_COMM_NULL;
-  int color = (rank < working_proc_count) ? 0 : MPI_UNDEFINED;
-  MPI_Comm_split(MPI_COMM_WORLD, color, rank, &cannon_comm);
+  MPI_Comm comm = MPI_COMM_NULL;
+  int color = (rank < active) ? 0 : MPI_UNDEFINED;
 
-  if (rank < working_proc_count) {
-    int worker_rank = 0;
-    int worker_size = 0;
-    MPI_Comm_rank(cannon_comm, &worker_rank);
-    MPI_Comm_size(cannon_comm, &worker_size);
+  MPI_Comm_split(MPI_COMM_WORLD, color, rank, &comm);
 
-    std::vector<double> local_A(static_cast<size_t>(block_size) * block_size);
-    std::vector<double> local_B(static_cast<size_t>(block_size) * block_size);
-    std::vector<double> local_C(static_cast<size_t>(block_size) * block_size, 0.0);
+  if (rank < active) {
+    int wrank = 0;
+    int wsize = 0;
 
-    DistributeData(cannon_comm, worker_rank, worker_size, q, block_size, padded_a, padded_b, local_A, local_B);
+    MPI_Comm_rank(comm, &wrank);
+    MPI_Comm_size(comm, &wsize);
 
-    CannonAlgorithm(cannon_comm, worker_rank, q, block_size, local_A, local_B, local_C);
+    std::vector<double> local_a(static_cast<size_t>(block_size) * block_size);
+    std::vector<double> local_b(static_cast<size_t>(block_size) * block_size);
+    std::vector<double> local_c(static_cast<size_t>(block_size) * block_size, 0.0);
 
-    CollectResult(cannon_comm, worker_rank, worker_size, q, block_size, flat_result, local_C);
+    DistributeData(comm, wrank, wsize, q, block_size, padded_a, padded_b, local_a, local_b);
 
-    MPI_Comm_free(&cannon_comm);
+    CannonAlgorithm(comm, wrank, q, block_size, local_a, local_b, local_c);
+
+    CollectResult(comm, wrank, wsize, q, block_size, flat_result, local_c);
+
+    MPI_Comm_free(&comm);
   }
 
   MPI_Bcast(flat_result.data(), padded_n * padded_n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-  std::vector<std::vector<double>> final_matrix(static_cast<size_t>(original_n),
-                                                std::vector<double>(static_cast<size_t>(original_n)));
+  std::vector<std::vector<double>> result(static_cast<size_t>(n), std::vector<double>(static_cast<size_t>(n)));
 
-  for (int i = 0; i < original_n; ++i) {
-    for (int j = 0; j < original_n; ++j) {
-      final_matrix[i][j] = flat_result[i * padded_n + j];
+  for (int i = 0; i < n; ++i) {
+    for (int j = 0; j < n; ++j) {
+      result[i][j] = flat_result[(i * padded_n) + j];
     }
   }
 
-  GetOutput() = std::move(final_matrix);
-
+  GetOutput() = std::move(result);
   return true;
 }
 

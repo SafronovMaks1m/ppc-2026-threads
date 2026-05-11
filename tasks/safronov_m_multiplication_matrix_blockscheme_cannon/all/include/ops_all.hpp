@@ -24,22 +24,23 @@ class SafronovMMultiplicationMatrixBlockSchemeCannonALL : public BaseTask {
   bool PostProcessingImpl() override;
 
   static int CalcPaddedSize(int n, int q);
+
   static void PadMatrix(const std::vector<std::vector<double>> &src, std::vector<std::vector<double>> &dst,
                         int padded_n);
 
-  void ParallelMultiplyBlocks(const std::vector<double> &A, const std::vector<double> &B, std::vector<double> &C,
-                              int block_size);
+  static void ParallelMultiplyBlocks(const std::vector<double> &a, const std::vector<double> &b, std::vector<double> &c,
+                                     int block_size);
 
-  void DistributeData(MPI_Comm comm, int worker_rank, int worker_size, int q, int block_size,
-                      const std::vector<std::vector<double>> &matrix_a_full,
-                      const std::vector<std::vector<double>> &matrix_b_full, std::vector<double> &local_A,
-                      std::vector<double> &local_B);
+  static void DistributeData(MPI_Comm comm, int worker_rank, int worker_size, int q, int block_size,
+                             const std::vector<std::vector<double>> &matrix_a_full,
+                             const std::vector<std::vector<double>> &matrix_b_full, std::vector<double> &local_a,
+                             std::vector<double> &local_b);
 
-  void CannonAlgorithm(MPI_Comm comm, int worker_rank, int q, int block_size, std::vector<double> &local_A,
-                       std::vector<double> &local_B, std::vector<double> &local_C);
+  static void CannonAlgorithm(MPI_Comm comm, int worker_rank, int q, int block_size, std::vector<double> &local_a,
+                              std::vector<double> &local_b, std::vector<double> &local_c);
 
-  void CollectResult(MPI_Comm comm, int worker_rank, int worker_size, int q, int block_size,
-                     std::vector<double> &flat_result, const std::vector<double> &local_C);
+  static void CollectResult(MPI_Comm comm, int worker_rank, int worker_size, int q, int block_size,
+                            std::vector<double> &flat_result, const std::vector<double> &local_c);
 };
 
 }  // namespace safronov_m_multiplication_matrix_blocksscheme_cannon
