@@ -40,7 +40,7 @@ int SafronovMMultiplicationMatrixBlockSchemeCannonALL::CalcPaddedSize(int n, int
 
 void SafronovMMultiplicationMatrixBlockSchemeCannonALL::PadMatrix(const std::vector<std::vector<double>> &src,
                                                                   std::vector<std::vector<double>> &dst, int padded_n) {
-  size_t sz = static_cast<size_t>(padded_n);
+  auto sz = static_cast<size_t>(padded_n);
 
   dst = std::vector<std::vector<double>>(sz, std::vector<double>(sz, 0.0));
 
@@ -228,9 +228,12 @@ bool SafronovMMultiplicationMatrixBlockSchemeCannonALL::RunImpl() {
 
   std::vector<std::vector<double>> result(static_cast<size_t>(n), std::vector<double>(static_cast<size_t>(n)));
 
-  for (size_t i = 0; i < static_cast<size_t>(n); ++i) {
-    for (size_t j = 0; j < static_cast<size_t>(n); ++j) {
-      result[i][j] = flat_result[(i * static_cast<size_t>(padded_n)) + j];
+  auto un = static_cast<size_t>(n);
+  auto upadded_n = static_cast<size_t>(padded_n);
+
+  for (size_t i = 0; i < un; ++i) {
+    for (size_t j = 0; j < un; ++j) {
+      result[i][j] = flat_result[(i * upadded_n) + j];
     }
   }
 
