@@ -2,11 +2,15 @@
 
 #include <mpi.h>
 
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <utility>
+#include <vector>
 
 #include "oneapi/tbb/blocked_range2d.h"
 #include "oneapi/tbb/parallel_for.h"
+#include "safronov_m_multiplication_matrix_blockscheme_cannon/common/include/common.hpp"
 
 namespace safronov_m_multiplication_matrix_blocksscheme_cannon {
 
@@ -75,11 +79,10 @@ void SafronovMMultiplicationMatrixBlockSchemeCannonALL::DistributeData(
 
       for (int i = 0; i < block_size; ++i) {
         for (int j = 0; j < block_size; ++j) {
-          int a_row = row * block_size + i;
-          int a_col = ((col + row) % q) * block_size + j;
-
-          int b_row = ((row + col) % q) * block_size + i;
-          int b_col = col * block_size + j;
+          int a_row = (row * block_size) + i;
+          int a_col = (((col + row) % q) * block_size) + j;
+          int b_row = (((row + col) % q) * block_size) + i;
+          int b_col = (col * block_size) + j;
 
           send_a[(i * block_size) + j] = matrix_a_full[a_row][a_col];
           send_b[(i * block_size) + j] = matrix_b_full[b_row][b_col];
@@ -107,8 +110,8 @@ void SafronovMMultiplicationMatrixBlockSchemeCannonALL::CannonAlgorithm(MPI_Comm
   int row = worker_rank / q;
   int col = worker_rank % q;
 
-  int left = row * q + ((col + 1) % q);
-  int right = row * q + ((col - 1 + q) % q);
+  int left = row * q + ((col - 1 + q) % q);
+  int right = row * q + ((col + 1) % q);
   int up = ((row - 1 + q) % q) * q + col;
   int down = ((row + 1) % q) * q + col;
 
@@ -131,6 +134,18 @@ void SafronovMMultiplicationMatrixBlockSchemeCannonALL::CannonAlgorithm(MPI_Comm
   }
 }
 
+void SafronovMMultiplicationMatrixBlockSchemeCannonALL::FillResultFromBuffer(std::vector<double> &flat_result,
+                                                                             const std::vector<double> &buffer, int row,
+                                                                             int col, int block_size, int padded_n) {
+  for (int i = 0; i < block_size; ++i) {
+    for (int j = 0; j < block_size; ++j) {
+      int global_row = (row * block_size) + i;
+      int global_col = (col * block_size) + j;
+      flat_result[(global_row * padded_n) + global_col] = buffer[(i * block_size) + j];
+    }
+  }
+}
+
 void SafronovMMultiplicationMatrixBlockSchemeCannonALL::CollectResult(MPI_Comm comm, int worker_rank, int worker_size,
                                                                       int q, int block_size,
                                                                       std::vector<double> &flat_result,
@@ -138,30 +153,13 @@ void SafronovMMultiplicationMatrixBlockSchemeCannonALL::CollectResult(MPI_Comm c
   int padded_n = q * block_size;
 
   if (worker_rank == 0) {
-    for (int i = 0; i < block_size; ++i) {
-      for (int j = 0; j < block_size; ++j) {
-        flat_result[(i * padded_n) + j] = local_c[(i * block_size) + j];
-      }
-    }
+    FillResultFromBuffer(flat_result, local_c, 0, 0, block_size, padded_n);
 
-    std::vector<double> recv_buf(static_cast<size_t>(block_size) * block_size);
-
+    std::vector<double> recv_buf(static_cast<std::size_t>(block_size) * block_size);
     for (int proc = 1; proc < worker_size; ++proc) {
       MPI_Recv(recv_buf.data(), block_size * block_size, MPI_DOUBLE, proc, 20, comm, MPI_STATUS_IGNORE);
-
-      int row = proc / q;
-      int col = proc % q;
-
-      for (int i = 0; i < block_size; ++i) {
-        for (int j = 0; j < block_size; ++j) {
-          int global_row = row * block_size + i;
-          int global_col = col * block_size + j;
-
-          flat_result[(global_row * padded_n) + global_col] = recv_buf[(i * block_size) + j];
-        }
-      }
+      FillResultFromBuffer(flat_result, recv_buf, proc / q, proc % q, block_size, padded_n);
     }
-
   } else {
     MPI_Send(local_c.data(), block_size * block_size, MPI_DOUBLE, 0, 20, comm);
   }
